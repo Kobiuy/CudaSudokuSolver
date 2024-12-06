@@ -1,5 +1,4 @@
-﻿// debug compute-sanitizer CudaSudokuSolver.exe > a.txt 2>&1
-#include "kernel.h"
+﻿#include "kernel.h"
 
 int main()
 {
@@ -234,7 +233,7 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 	uint16_t ID;
 
 	while (*runningThreads > 0) {
-		//__syncthreads(); // TODO Jak tego nie ma to problem
+		//__syncthreads(); // TODO 
 		char bestX, bestY; char minCount = 10;
 
 		if (tid < *boardsCount && globalBoards->valid[tid]) {
