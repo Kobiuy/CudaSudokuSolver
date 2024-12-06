@@ -228,7 +228,7 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 	char optionsCount;
 	char possibleValues[10];
 	unsigned short tid = threadIdx.x + blockIdx.x * blockDim.x;
-	char values[BOARD_SIZE];
+	char values[BOARD_SIZE]; 
 	bool firstTime = true;
 	uint16_t ID;
 
@@ -237,7 +237,7 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 		char bestX, bestY; char minCount = 10;
 
 		if (tid < *boardsCount && globalBoards->valid[tid]) {
-			if (firstTime) {
+			if (firstTime) { // Jeśli pierwszy raz, to skopiuj values do rejestru
 				firstTime = false;
 				memcpy(values, globalBoards->boardValues + BOARD_SIZE * tid, BOARD_SIZE * sizeof(char));
 				ID = globalBoards->gameID[tid];
@@ -290,7 +290,7 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 						atomicAdd(runningThreads, 1);
 					}
 
-					// Reużywanie obecnego threada
+					// Reużywanie obecnego wątku
 					globalBoards->SetValueAndUpdateBitmasks(values, tid, bestX, bestY, possibleValues[0]);
 
 				}
