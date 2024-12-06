@@ -4,7 +4,8 @@
 int main()
 {
 	int maxGames = CalculateMaxBoardCount();
-	int max_blocks = GetMaxBlocks();
+	int maxBlocks = GetMaxBlocks();
+
 	// Reading data from file
 	char filename[] = "dane.txt";
 	printf(filename);
@@ -29,6 +30,7 @@ int main()
 	}
 	fclose(file);
 
+	// Liczenie zer, żeby nie było za dużo nieużywanych wątków, próba przewidzenia ilości potrzebnych wątków
 	int zeros = 0;
 	for (int i = 0; i < boardCount; i++) {
 		for (int j = 0; j < BOARD_SIZE; j++) {
@@ -36,11 +38,12 @@ int main()
 		}
 	}
 
-	int maxBoardsCount = min(zeros * 40, min(max_blocks * BLOCK_SIZE, CalculateMaxBoardCount()));
-	printf("maxBoardsCount: %d, Zeros: %d, Max: %d\n", maxBoardsCount, zeros, max_blocks * BLOCK_SIZE);
+	// Maksymalna ilość plansz to minimum z dostępnej pamięci/dostępnych wątków
+	int maxBoardsCount = min(zeros * 40, min(maxBlocks * BLOCK_SIZE, CalculateMaxBoardCount()));
+	printf("maxBoardsCount: %d, Zeros: %d, Max: %d\n", maxBoardsCount, zeros, maxBlocks * BLOCK_SIZE);
 
 
-	// Prepparing data for  
+	// Przygotowywanie danych dla GPU
 	char* boards = new char[boardCount * BOARD_SIZE];
 	for (int i = 0; i < boardCount; i++) {
 		strcpy(boards + BOARD_SIZE * i, lines[i]);
@@ -48,9 +51,7 @@ int main()
 	char* resultBoards = new char[boardCount * BOARD_SIZE];
 
 	// Solving on CPU
-	char* cpuSols = new char[boardCount * BOARD_SIZE];
-	RunCpu(lines, boardCount, cpuSols);
-	delete[] lines;
+	RunCpu(lines, boardCount);
 
 	// Solving on GPU
 	cudaError_t cudaStatus = SolveSudokuWithCuda(resultBoards, boards, boardCount, maxBoardsCount);
@@ -60,11 +61,12 @@ int main()
 	}
 
 
-	for (int i = 0; i < boardCount; i++) {
+	for (int i = 0; i < boardCount; i++) { // Wyświetlanie wyniku
 		printf("board Id %d\n", i);
 		print(resultBoards + i * BOARD_SIZE);
 	}
-	SaveToFile(resultBoards, boardCount);
+
+	SaveToFile(resultBoards, boardCount); // Zapis wyniku z GPU
 
 	for (int i = 0; i < boardCount; i++) { // Sprawdzania poprawności wyników
 		if (!isValidSudoku(resultBoards + i * BOARD_SIZE))
@@ -76,9 +78,14 @@ int main()
 		fprintf(stderr, "cudaDeviceReset failed!");
 		return 1;
 	}
-	delete[] cpuSols;
-	delete[] resultBoards;
 
+	// Freeing memory
+	for (int i = 0; i < boardCount; i++) {
+		free(lines[i]);
+	}
+	free(lines);
+	delete[] resultBoards;
+	delete[] boards;
 	return 0;
 }
 
@@ -107,59 +114,51 @@ cudaError_t SolveSudokuWithCuda(char* resultBoards, const char* board, int initB
 		fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
 		goto Error;
 	}
-
-	{ // Mallock
-
-		cudaStatus = cudaMalloc((void**)&dev_resultBoards, initBoardCount * BOARD_SIZE * sizeof(char));
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMalloc failed!");
-			goto Error;
-		}
-		cudaStatus = cudaMalloc((void**)&dev_BoardsCount, sizeof(int));
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMalloc failed!");
-			goto Error;
-		}
-		cudaStatus = cudaMalloc((void**)&dev_MaxBoardsCount, sizeof(int));
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMalloc failed!");
-			goto Error;
-		}
-		cudaStatus = cudaMalloc((void**)&dev_runnigThreads, sizeof(int));
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMalloc failed!");
-			goto Error;
-		}
-		cudaMalloc(&dev_globalBoards, sizeof(Boards));
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMalloc failed!");
-			goto Error;
-		}
-
+	cudaStatus = cudaMalloc((void**)&dev_resultBoards, initBoardCount * BOARD_SIZE * sizeof(char));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed!");
+		goto Error;
 	}
-	{ //Memcpy
-		cudaStatus = cudaMemcpy(dev_BoardsCount, &initBoardCount, sizeof(int), cudaMemcpyHostToDevice);
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMemcpy failed!");
-			goto Error;
-		}
-		cudaStatus = cudaMemcpy(dev_MaxBoardsCount, &maxBoardsCount, sizeof(int), cudaMemcpyHostToDevice);
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMemcpy failed!");
-			goto Error;
-		}
-		cudaStatus = cudaMemcpy(dev_runnigThreads, &initBoardCount, sizeof(int), cudaMemcpyHostToDevice);
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMemcpy failed!");
-			goto Error;
-		}
+	cudaStatus = cudaMalloc((void**)&dev_BoardsCount, sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed!");
+		goto Error;
+	}
+	cudaStatus = cudaMalloc((void**)&dev_MaxBoardsCount, sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed!");
+		goto Error;
+	}
+	cudaStatus = cudaMalloc((void**)&dev_runnigThreads, sizeof(int));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed!");
+		goto Error;
+	}
+	cudaMalloc(&dev_globalBoards, sizeof(Boards));
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMalloc failed!");
+		goto Error;
+	}
 
-
-		cudaMemcpy(dev_globalBoards, &tempBoard, sizeof(Boards), cudaMemcpyHostToDevice);
-		if (cudaStatus != cudaSuccess) {
-			fprintf(stderr, "cudaMemcpy failed!");
-			goto Error;
-		}
+	cudaStatus = cudaMemcpy(dev_BoardsCount, &initBoardCount, sizeof(int), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed!");
+		goto Error;
+	}
+	cudaStatus = cudaMemcpy(dev_MaxBoardsCount, &maxBoardsCount, sizeof(int), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed!");
+		goto Error;
+	}
+	cudaStatus = cudaMemcpy(dev_runnigThreads, &initBoardCount, sizeof(int), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed!");
+		goto Error;
+	}
+	cudaMemcpy(dev_globalBoards, &tempBoard, sizeof(Boards), cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "cudaMemcpy failed!");
+		goto Error;
 	}
 	warm_up_gpu << <blockCount, BLOCK_SIZE >> > ();
 	{ // AfterKernelStuff
@@ -217,6 +216,7 @@ cudaError_t SolveSudokuWithCuda(char* resultBoards, const char* board, int initB
 	}
 
 Error:
+	
 	cudaFree(dev_resultBoards);
 	cudaFree(dev_BoardsCount);
 	cudaFree(dev_MaxBoardsCount);
@@ -272,18 +272,19 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 					for (char i = 1; i < minCount; ++i) {
 
 						unsigned short boardID = currentBoards + (i - 1);
-						//#pragma unroll BOARD_DIM
-						//						for (char x = 0; x < BOARD_DIM; ++x) {
-						//#pragma unroll BOARD_DIM
-						//							for (char y = 0; y < BOARD_DIM; ++y) {
-						//								globalBoards->SetValueAndUpdateBitmasks(boardID, x, y, values[(y * BOARD_DIM) + x]);
-						//							}
-						//						}
+#pragma unroll BOARD_DIM
+						for (char x = 0; x < BOARD_DIM; ++x) {
+#pragma unroll BOARD_DIM
+							for (char y = 0; y < BOARD_DIM; ++y) {
+								globalBoards->SetValueAndUpdateBitmasks(boardID, x, y, values[(y * BOARD_DIM) + x]);
+							}
+						}
 
-						memcpy(globalBoards->columnBitmask + boardID * BOARD_DIM, globalBoards->columnBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
-						memcpy(globalBoards->rowBitmask + boardID * BOARD_DIM, globalBoards->rowBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
-						memcpy(globalBoards->squareBitmask + boardID * BOARD_DIM, globalBoards->squareBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
-						memcpy(globalBoards->boardValues + boardID * BOARD_SIZE, values, BOARD_SIZE);
+
+						//memcpy(globalBoards->columnBitmask + boardID * BOARD_DIM, globalBoards->columnBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
+						//memcpy(globalBoards->rowBitmask + boardID * BOARD_DIM, globalBoards->rowBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
+						//memcpy(globalBoards->squareBitmask + boardID * BOARD_DIM, globalBoards->squareBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
+						//memcpy(globalBoards->boardValues + boardID * BOARD_SIZE, values, BOARD_SIZE);
 
 						globalBoards->gameID[boardID] = ID;
 						globalBoards->SetValueAndUpdateBitmasks(boardID, bestX, bestY, possibleValues[i]);
@@ -331,12 +332,10 @@ __global__ void BacktrackingKernel(char* resultBoard, int* boardsCount, Boards* 
 		char lastplace;
 		uint16_t ID = globalBoards->gameID[tid];
 		char values[BOARD_SIZE];
-		//memset(values, '0', BOARD_SIZE * sizeof(char));
-
 		SmallStack* usedStack = new SmallStack();
 		memcpy(values, globalBoards->boardValues + BOARD_SIZE * tid, BOARD_SIZE * sizeof(char));
 		do {
-			if (value != '0') {
+			if (value != '0') { // Jeśli to nie pierwsza iteracja, pobierz dane z usedStack
 				while (values[place] != '0') {
 					usedStack->pop(&lastplace);
 					globalBoards->GoBackBitmask(values, tid, lastplace % BOARD_DIM, lastplace / BOARD_DIM);
@@ -344,8 +343,9 @@ __global__ void BacktrackingKernel(char* resultBoard, int* boardsCount, Boards* 
 				globalBoards->SetValueAndUpdateBitmasks(values, tid, place % BOARD_DIM, place / BOARD_DIM, value);
 				usedStack->push(place);
 			}
-
 			char bestX, bestY; char minCount = 10;
+
+			// Szukanie najlepszego pola do wypełnienia
 #pragma unroll BOARD_DIM
 			for (char x = 0; x < BOARD_DIM; x++) {
 #pragma unroll BOARD_DIM
@@ -376,7 +376,7 @@ __global__ void BacktrackingKernel(char* resultBoard, int* boardsCount, Boards* 
 				if (overflow) break;
 
 			}
-			else { //Gdy nie ma opcji żadnych
+			else { // Gdy nie ma opcji żadnych
 #pragma unroll BOARD_SIZE
 				for (char i = 0; i < BOARD_SIZE; i++) {
 					if (values[i] == '0') {
@@ -398,6 +398,7 @@ __global__ void BacktrackingKernel(char* resultBoard, int* boardsCount, Boards* 
 			}
 		} while (stack->pop(&value, &place) && !globalBoards->done[ID]);
 		delete stack;
+		delete usedStack;
 	}
 }
 __global__ void warm_up_gpu() {
@@ -467,6 +468,7 @@ Boards::Boards(const char* data, uint16_t initBoardsCount, uint16_t boardsCount)
 		h_done[i] = false;
 	}
 
+	// Create Bitmasks and Values arrays
 	for (uint16_t id = 0; id < initBoardsCount; id++) {
 		h_valid[id] = true;
 #pragma unroll BOARD_DIM
@@ -483,6 +485,7 @@ Boards::Boards(const char* data, uint16_t initBoardsCount, uint16_t boardsCount)
 		}
 	}
 
+	// Move arrays to Device memory
 	cudaMalloc(&columnBitmask, masksSize);
 	cudaMalloc(&rowBitmask, masksSize);
 	cudaMalloc(&squareBitmask, masksSize);
@@ -499,6 +502,7 @@ Boards::Boards(const char* data, uint16_t initBoardsCount, uint16_t boardsCount)
 	cudaMemcpy(done, h_done, boolSize, cudaMemcpyHostToDevice);
 	cudaMemcpy(valid, h_valid, boolSize, cudaMemcpyHostToDevice);
 
+	// Cleanup
 	delete[] h_Columns;
 	delete[] h_Rows;
 	delete[] h_Squeres;
@@ -599,15 +603,12 @@ void SaveToFile(char* line, int boardsCount) {
 	fclose(file);
 }
 
-void RunCpu(char** board, int boardCount, char* sols) {
-	//char* data = (char*)"0BOARD_DIM070086003100502080600000000705000600030700050001070000000010BOARD_DIM020600350054008070";
+void RunCpu(char** board, int boardCount) {
 	char solution[BOARD_SIZE];
 	auto ts = high_resolution_clock::now();
 	for (int i = 0; i < boardCount; i++) {
 		int res = sudokuCPU(board[i], solution);
-		memcpy(sols + i * BOARD_SIZE, solution, BOARD_SIZE);
 	}
-
 	auto te = high_resolution_clock::now();
 	cout << "Time:    " << setw(7) << 0.001 * duration_cast<microseconds>(te - ts).count() << " nsec" << endl;
 
@@ -693,6 +694,8 @@ int GetMaxBlocks() {
 	}
 	return maxThreadsPerSM * deviceProp.multiProcessorCount / deviceProp.maxThreadsPerBlock;
 }
+
+// Debugging code
 __device__ void DebugPrinting(char* values) {
 	for (int i = 0, ij = 0; i < N2; ++i)
 	{

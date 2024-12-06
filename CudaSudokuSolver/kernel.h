@@ -65,7 +65,7 @@ struct SmallStack {
 void print(char* solution);
 __device__ void DebugPrinting(char* values);
 __device__ void PrintBitmasksFor(int x, int y, uint16_t Columns[], uint16_t Rows[], uint16_t Squeres[]);
-void RunCpu(char** board, int boardCount, char* sols);
+void RunCpu(char** board, int boardCount);
 void PrintCardInfo();
 int CalculateMaxBoardCount();
 int GetMaxBlocks();
