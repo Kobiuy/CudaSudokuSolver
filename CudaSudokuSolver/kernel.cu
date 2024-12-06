@@ -215,7 +215,7 @@ cudaError_t SolveSudokuWithCuda(char* resultBoards, const char* board, int initB
 	}
 
 Error:
-	
+
 	cudaFree(dev_resultBoards);
 	cudaFree(dev_BoardsCount);
 	cudaFree(dev_MaxBoardsCount);
@@ -279,7 +279,6 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 							}
 						}
 
-
 						//memcpy(globalBoards->columnBitmask + boardID * BOARD_DIM, globalBoards->columnBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
 						//memcpy(globalBoards->rowBitmask + boardID * BOARD_DIM, globalBoards->rowBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
 						//memcpy(globalBoards->squareBitmask + boardID * BOARD_DIM, globalBoards->squareBitmask + tid * BOARD_DIM, 2 * BOARD_DIM);
@@ -290,6 +289,8 @@ __global__ void SolveSudokuKernel(char* resultBoard, int* boardsCount, int* maxB
 						globalBoards->valid[boardID] = true;
 						atomicAdd(runningThreads, 1);
 					}
+
+					// Reużywanie obecnego threada
 					globalBoards->SetValueAndUpdateBitmasks(values, tid, bestX, bestY, possibleValues[0]);
 
 				}
