@@ -5,7 +5,7 @@ int main()
 	int maxGames = CalculateMaxBoardCount();
 	int maxBlocks = GetMaxBlocks();
 
-	// Reading data from file
+	// Czytanie danych z pliku
 	char filename[] = "dane.txt";
 	printf(filename);
 	printf("\n");
